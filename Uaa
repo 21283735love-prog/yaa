@@ -38,6 +38,79 @@ The Gauss-Seidel proof is a little more involved, but it uses the same
 idea: strict diagonal dominance makes the error iteration contract, so
 errors are not amplified from one step to the next.
 
+::: {.callout-tip collapse="true"}
+## Q&A — What does "error iteration contracts" mean for Gauss-Seidel?
+
+**Date:** 2026-05-24  
+**Anchor:** Strict Diagonal Dominance — "error iteration contract, so errors are not amplified"
+
+**Question.**  
+Why does strict diagonal dominance guarantee that the Gauss-Seidel method converges? What does it mean that "the error iteration contracts"?
+
+**Answer.**
+
+1. **TL;DR** — Strict diagonal dominance ensures that the error shrinks at each iteration (contracts). This means new errors don't grow faster than old errors fade, guaranteeing convergence.
+
+2. **Why / How**
+
+   In iterative methods, we track the **error** $e^{(k)} = x^{(k)} - x^*$ (how far we are from the true solution). The error evolves according to an **error iteration**:
+   
+   $$e^{(k+1)} = M e^{(k)},$$
+   
+   where $M$ is the iteration matrix (for Gauss-Seidel, $M = -(L+D)^{-1}U$).
+   
+   "Contraction" means that $\|e^{(k+1)}\| < \|e^{(k)}\|$ (the error shrinks). More precisely, if the **spectral radius** $\rho(M) < 1$ (i.e., all eigenvalues of $M$ have magnitude less than 1), then errors decay exponentially and the method converges.
+   
+   **Strict diagonal dominance guarantees this contraction** because:
+   
+   - The condition $|a_{ii}| > \sum_{j \ne i} |a_{ij}|$ ensures that the diagonal dominates.
+   - This translates into a bound on the iteration matrix components, preventing the error from growing in any direction.
+   - Although the full proof for Gauss-Seidel requires deeper analysis (unlike Jacobi, which is direct), the key insight is the same: off-diagonal coupling is weak relative to diagonal dominance, so past iterations don't amplify errors.
+   
+   **Intuition:** Each diagonal entry acts as a "strong anchor" that prevents the other equations from pushing the solution away. The error in one component can't snowball because the diagonal term is so large.
+
+3. **See also**  
+   - [Theorem: convergence guarantee](#sec-diagonal-dominance) — the main convergence result
+   - The earlier discussion of $\rho(M_J) \leq \|M_J\|_\infty < 1$ for Jacobi shows the same principle
+
+::: {.callout-note collapse="true"}
+### Optional: numerical verification
+```python
+import numpy as np
+from numpy import linalg as LA
+
+# Create a strictly diagonally dominant matrix
+n = 5
+A = np.diag([10, 8, 12, 9, 11])  # diagonal entries
+# Add off-diagonal entries that don't violate strict dominance
+np.random.seed(42)
+for i in range(n):
+    for j in range(n):
+        if i != j:
+            A[i, j] = np.random.uniform(-1, 1)
+
+# Check diagonal dominance
+for i in range(n):
+    diag = abs(A[i, i])
+    offdiag_sum = np.sum(np.abs(A[i, :]) - abs(A[i, i]))
+    print(f"Row {i}: |a_ii| = {diag:.2f}, sum|a_ij| (j≠i) = {offdiag_sum:.2f}, "
+          f"dominant? {diag > offdiag_sum}")
+
+# Compute iteration matrix M for Gauss-Seidel: M = -(L+D)^-1 U
+D = np.diag(np.diag(A))
+L = np.tril(A, k=-1)
+U = np.triu(A, k=1)
+M = -LA.inv(L + D) @ U
+
+# Check spectral radius
+eigs = LA.eigvals(M)
+rho = max(abs(eigs))
+print(f"\nSpectral radius ρ(M) = {rho:.4f}")
+print(f"Convergence guaranteed? {rho < 1}")
+```
+:::
+:::
+
 :::: {.callout-note title="Remark: Gauss-Seidel for SPD matrices"}
 If $A$ is symmetric positive definite (SPD), then the Gauss-Seidel method
 converges for any initial vector $x^{(0)}$. See the beginning of the next
