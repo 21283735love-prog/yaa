@@ -164,7 +164,7 @@ I understand that CG converges faster than Jacobi and Gauss-Seidel, but what doe
 
 **Answer.**
 
-1. **TL;DR** — Stationary methods like Jacobi/Gauss-Seidel move in one direction repeatedly, which can undo earlier improvements. CG chooses **$A$-conjugate directions** that are "orthogonal with respect to the matrix $A$," ensuring each step moves toward the solution without spoiling previous advances.
+1. **TL;DR** — Stationary methods like Jacobi/Gauss-Seidel move in one direction repeatedly, which can undo earlier improvements. CG chooses **$A$-conjugate directions** that are "orthogonal with respect to matrix $A$," ensuring each step doesn't spoil previous advances.
 
 2. **Why / How**
 
@@ -612,6 +612,137 @@ problems with large condition numbers can converge slowly.
 Here we consider the case where $A$ is SPD. In the standard preconditioned CG
 method, the preconditioner $P$ is also SPD and is chosen so that $Pz=r$ can be
 solved cheaply.
+
+::: {.callout-tip collapse="true"}
+## Q&A — Why does CG slow down with large condition numbers? How does preconditioning help?
+
+**Date:** 2026-05-24  
+**Anchor:** Preconditioning — "convergence estimates depend strongly on condition number"
+
+**Question.**  
+The handout says CG convergence depends on the condition number $\kappa_2(A)$. Why is that a problem, and how does using a preconditioner $P$ help accelerate convergence?
+
+**Answer.**
+
+1. **TL;DR** — Large condition numbers mean CG needs many iterations because its error shrinks slowly (convergence rate is proportional to $\sqrt{\kappa_2(A)}$). Preconditioning replaces $A$ with an equivalent problem having much smaller condition number, keeping per-iteration cost low.
+
+2. **Why / How**
+
+   **The CG error bound tells the story:**
+   
+   From the "CG Convergence and the Condition Number" section, we have:
+   
+   $$\frac{\|x^{(k)}-x^*\|_A}{\|x^{(0)}-x^*\|_A} \leq 2 \left( \frac{\sqrt{\kappa_2(A)}-1}{\sqrt{\kappa_2(A)}+1} \right)^k$$
+   
+   - If $\kappa_2(A) = 10$, the contraction factor is $\approx 0.65$ per iteration — reasonable.
+   - If $\kappa_2(A) = 1000$, the contraction factor is $\approx 0.96$ per iteration — you need $\sim 100$ iterations!
+   - If $\kappa_2(A) = 10^6$, you might need thousands of iterations.
+   
+   **Why preconditioning works:**
+   
+   The preconditioner $P$ is chosen to be:
+   
+   - **Easy to solve**: $Pz = r$ is cheap (cost $\sim$ one matrix-vector product or less)
+   - **Good approximation**: $P \approx A$, ideally with $\kappa_2(P^{-1}A) \ll \kappa_2(A)$
+   
+   The preconditioned CG method effectively solves the transformed system:
+   
+   $$P^{-1}A x = P^{-1}b$$
+   
+   which has condition number $\kappa_2(P^{-1}A)$ much smaller than $\kappa_2(A)$.
+   
+   **Trade-off:**
+   
+   - Without preconditioning: $n$ CG iterations × low cost per iteration = high total cost
+   - With preconditioning: $m$ PCG iterations (where $m \ll n$) × slightly higher cost per iteration = lower total cost
+   
+   **Examples of preconditioners:**
+   
+   - **Jacobi**: $P = \operatorname{diag}(A)$ — dirt cheap but modest effect
+   - **Incomplete Cholesky (IC)**: $P \approx \widetilde{L}\widetilde{L}^T$ — more expensive to build but far better conditioning
+
+3. **See also**  
+   - [Why Do We Need $P$?](#sec-why-preconditioner) — detailed explanation of preconditioner goals
+   - [Common Preconditioners](#sec-preconditioning) — Jacobi and incomplete Cholesky examples
+   - [CG error bound](#sec-cg-convergence) — the quantitative convergence rate
+
+::: {.callout-note collapse="true"}
+### Optional: numerical demonstration
+
+```python
+import numpy as np
+from numpy import linalg as LA
+
+def conjugate_gradient(A, b, x0=None, tol=1e-8, max_iter=None):
+    """Standard CG"""
+    n = len(b)
+    if max_iter is None:
+        max_iter = n
+    x = x0.copy() if x0 is not None else np.zeros(n)
+    r = b - A @ x
+    p = r.copy()
+    for k in range(max_iter):
+        if LA.norm(r) < tol:
+            return x, k
+        Ap = A @ p
+        alpha = (r @ r) / (p @ Ap)
+        x = x + alpha * p
+        r_new = r - alpha * Ap
+        if LA.norm(r_new) < tol:
+            return x, k + 1
+        beta = (r_new @ r_new) / (r @ r)
+        p = r_new + beta * p
+        r = r_new
+    return x, max_iter
+
+def preconditioned_cg(A, b, P, x0=None, tol=1e-8, max_iter=None):
+    """Preconditioned CG with preconditioner P"""
+    n = len(b)
+    if max_iter is None:
+        max_iter = n
+    x = x0.copy() if x0 is not None else np.zeros(n)
+    r = b - A @ x
+    z = LA.solve(P, r)  # Solve P z = r
+    p = z.copy()
+    for k in range(max_iter):
+        if LA.norm(r) < tol:
+            return x, k
+        Ap = A @ p
+        alpha = (r @ z) / (p @ Ap)
+        x = x + alpha * p
+        r_new = r - alpha * Ap
+        if LA.norm(r_new) < tol:
+            return x, k + 1
+        z_new = LA.solve(P, r_new)
+        beta = (r_new @ z_new) / (r @ z)
+        p = z_new + beta * p
+        r, z = r_new, z_new
+    return x, max_iter
+
+# Create an ill-conditioned SPD matrix
+np.random.seed(42)
+n = 50
+eigs = np.logspace(0, 3, n)  # eigenvalues from 1 to 1000
+Q = LA.qr(np.random.randn(n, n))[0]
+A = Q @ np.diag(eigs) @ Q.T
+
+x_true = np.ones(n)
+b = A @ x_true
+x0 = np.zeros(n)
+
+# Standard CG
+x_cg, it_cg = conjugate_gradient(A, b, x0, tol=1e-8)
+print(f"Standard CG:    {it_cg} iterations, κ(A) = {LA.cond(A):.1e}")
+
+# Preconditioned CG with Jacobi preconditioner
+P = np.diag(np.diag(A))
+x_pcg, it_pcg = preconditioned_cg(A, b, P, x0, tol=1e-8)
+print(f"Preconditioned CG (Jacobi): {it_pcg} iterations, κ(P⁻¹A) ≈ {LA.cond(LA.solve(P, A)):.1e}")
+
+print(f"\nSpeedup: {it_cg / max(1, it_pcg):.1f}x fewer iterations with preconditioning")
+```
+:::
+:::
 
 ::: {.callout-important title="Three quantities to keep in mind"}
 | Symbol | Meaning |
